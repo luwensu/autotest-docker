@@ -14,7 +14,6 @@ from dockertest.subtest import SubSubtest
 from dockertest.subtest import SubSubtestCallerSimultaneous
 from autotest.client import utils
 import re
-import time
 
 class iptable(SubSubtestCallerSimultaneous):
 
@@ -33,7 +32,7 @@ class iptable_base(SubSubtest):
         self.sub_stuff['result_info'] = []
         self.sub_stuff['name'] = None
         self.sub_stuff['net_device_list'] = self.read_veth_device()
-        self.sub_stuff['long_id'] = None
+        self.sub_stuff['net_device'] = None
 
     def _init_subargs(self):
         """
@@ -59,7 +58,7 @@ class iptable_base(SubSubtest):
         """
         tmp_cmd = 'brctl show'
         cmd_result = utils.run(tmp_cmd)
-        vnet = re.findall(r'veth\w+',cmd_result.stdout)
+        vnet = re.findall(r'veth\w+', cmd_result.stdout)
 
         return vnet
 
@@ -91,7 +90,6 @@ class iptable_base(SubSubtest):
 
     def run_once(self):
         super(iptable_base, self).run_once()
-
         subargs = self.sub_stuff['subargs']
         NoFailDockerCmd(self.parent_subtest,
                         'run -d -t',
@@ -99,8 +97,6 @@ class iptable_base(SubSubtest):
 
     def postprocess(self):
         super(iptable_base, self).postprocess()
-        self.failif(self.sub_stuff['result'] is False,
-                    self.sub_stuff['result_info'])
 
     def cleanup(self):
         super(iptable_base, self).cleanup()
@@ -108,7 +104,7 @@ class iptable_base(SubSubtest):
             dcmd = DockerCmd(self.parent_subtest,
                                  'rm',
                                  ['--force',
-                                  '--volume',
+                                  '--volumes',
                                  self.sub_stuff['name']])
             dcmd.execute()
 
@@ -119,35 +115,29 @@ class iptable_remove(iptable_base):
     """
     def run_once(self):
         super(iptable_remove, self).run_once()
-
-        time.sleep(3)
         net_device_list = set(self.read_veth_device()).\
                              difference(self.sub_stuff['net_device_list'])
         self.failif(len(net_device_list) != 1,
                     "Can't obtain network device of the tested container,"
                     "difference of list of net devices before/after is %s"
                     % net_device_list)
-        net_device = net_device_list.pop()
+        self.sub_stuff['net_device'] = net_device_list.pop()
 
-        added_rules = self.read_iptable_rules(net_device)
+    def postprocess(self):
+        net_device = self.sub_stuff['net_device']
+        container_rules = lambda: self.read_iptable_rules(net_device)
+        added_rules = utils.wait_for(container_rules, 10, step = 0.1)
+        self.failif(not added_rules, "No rules added when container started.")
         self.loginfo("Container %s\niptable rule list %s:" %
                       (self.sub_stuff['name'], added_rules))
 
         NoFailDockerCmd(self.parent_subtest,
                         'stop',
-                        [self.sub_stuff['name']]).execute()
+                        ["-t 0", self.sub_stuff['name']]).execute()
 
-        removed_rules = self.read_iptable_rules(net_device)
-        if added_rules == []:
-            self.sub_stuff['result'] = False
-            self.sub_stuff['result_info'] = ("No rules added when container "
-                                             "started.")
-
-        elif removed_rules:
-            self.sub_stuff['result'] = False
-            self.sub_stuff['result_info'] = ("Container %s iptables not "
-                                             "removed after stopped "
-                                             "Iptable %s."
-                                             % (self.sub_stuff['name'],
-                                                removed_rules))
-
+        container_rules = lambda: self.read_iptable_rules(net_device)
+        removed_rules = utils.wait_for(container_rules, 10, step = 0.1)
+        self.failif(removed_rules, "Container %s iptable rules not "
+                    "removed in 10s after stop. Rules:\n%s"
+                    % (self.sub_stuff['name'],
+                       self.read_iptable_rules(net_device)))
