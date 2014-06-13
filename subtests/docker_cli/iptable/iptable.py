@@ -135,9 +135,9 @@ class iptable_remove(iptable_base):
                         'stop',
                         ["-t 0", self.sub_stuff['name']]).execute()
 
-        container_rules = lambda: self.read_iptable_rules(net_device)
-        removed_rules = utils.wait_for(container_rules, 10, step = 0.1)
-        self.failif(removed_rules, "Container %s iptable rules not "
+        container_rules = lambda: not self.read_iptable_rules(net_device)
+        removed_rules = utils.wait_for(container_rules, 10, step=0.1)
+        self.failif(not removed_rules, "Container %s iptable rules not "
                     "removed in 10s after stop. Rules:\n%s"
                     % (self.sub_stuff['name'],
                        self.read_iptable_rules(net_device)))
