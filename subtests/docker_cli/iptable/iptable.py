@@ -115,8 +115,10 @@ class iptable_remove(iptable_base):
     """
     def run_once(self):
         super(iptable_remove, self).run_once()
-        net_device_list = set(self.read_veth_device()).\
-                             difference(self.sub_stuff['net_device_list'])
+        before_net = set(self.sub_stuff['net_device_list'])
+        after_net = set(self.read_veth_device())
+        net_device_list = list(after_net.difference(before_net))
+
         self.failif(len(net_device_list) != 1,
                     "Can't obtain network device of the tested container,"
                     "difference of list of net devices before/after is %s"
