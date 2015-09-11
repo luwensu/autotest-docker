@@ -45,11 +45,15 @@ def kill_run_cache():
     global RUN_CACHE
     RUN_CACHE = []
 
-def run(command, *args, **dargs):
-    command = "%s" % (command)
-    get_run_cache().append({'command':command, 'args':args, 'dargs':dargs})
-    return FakeCmdResult(command=command.strip(),
-                         stdout="""
+IMAGE_TABLE = ''
+def get_image_table():
+    global IMAGE_TABLE
+    return IMAGE_TABLE
+
+def set_image_table(newone=None):
+    global IMAGE_TABLE
+    if newone is None:
+        newone = """
 REPOSITORY                    TAG                 IMAGE ID                                                           CREATED             VIRTUAL SIZE
 192.168.122.245:5000/fedora   32                  0d20aec6529d5d396b195182c0eaa82bfe014c3e82ab390203ed56a774d2c404   5 weeks ago         387 MB
 fedora                        32                  0d20aec6529d5d396b195182c0eaa82bfe014c3e82ab390203ed56a774d2c404   5 weeks ago         387 MB
@@ -58,7 +62,15 @@ fedora                        rawhide             0d20aec6529d5d396b195182c0eaa8
 fedora                        20                  58394af373423902a1b97f209a31e3777932d9321ef10e64feaaa7b4df609cf9   5 weeks ago         385.5 MB
 fedora                        heisenbug           58394af373423902a1b97f209a31e3777932d9321ef10e64feaaa7b4df609cf9   5 weeks ago         385.5 MB
 fedora                        latest              58394af373423902a1b97f209a31e3777932d9321ef10e64feaaa7b4df609cf9   5 weeks ago         385.5 MB
-""",
+"""
+    IMAGE_TABLE = newone
+    return IMAGE_TABLE
+
+def run(command, *args, **dargs):
+    command = "%s" % (command)
+    get_run_cache().append({'command':command, 'args':args, 'dargs':dargs})
+    return FakeCmdResult(command=command.strip(),
+                         stdout=get_image_table(),
                          stderr=str(dargs),
                          exit_status=len(args),
                          duration=len(dargs))
@@ -151,8 +163,12 @@ class ImageTestBase(unittest.TestCase):
         self._setup_defaults()
         self._setup_customs()
         self.fake_subtest = self._make_fake_subtest()
+        # This initializes it to default
+        set_image_table(None)
 
     def tearDown(self):
+        # This initializes it to default
+        set_image_table(None)
         shutil.rmtree(self.config.CONFIGDEFAULT, ignore_errors=True)
         shutil.rmtree(self.config.CONFIGCUSTOMS, ignore_errors=True)
         self.assertFalse(os.path.isdir(self.config.CONFIGDEFAULT))
@@ -363,6 +379,77 @@ class DockerImageTestBasic(ImageTestBase):
         # no preserved names should be in either list
         self.assertEqual(cleaned_names, expected)
         self.assertTrue(cleaned_names.isdisjoint(preserve))
+
+
+class DockerImageTestAdvanced(ImageTestBase):
+
+    defaults = {'docker_path': '/foo/bar', 'docker_options': '--not_exist',
+                'docker_timeout': 60.0, 'docker_repo_name': 'fedora',
+                'docker_repo_tag': 'latest', 'docker_registry_host':'192.168.122.245:5000',
+                'docker_registry_user': '', 'preserve_fqins': 'fedora:32, fedora:heisenbug'}
+    customs = {}
+    config_section = "Foo/Bar/Baz"
+
+    def test_registry_host_config(self):
+        d = self.images.DockerImages(self.fake_subtest)
+        config = {'docker_repo_name': 'fedora',
+                  'docker_repo_tag': 'latest',
+                  'docker_registry_user': '',
+                  'docker_registry_host': '192.168.122.245:5000'}
+        config_no_registry = {'docker_repo_name': 'fedora',
+                              'docker_repo_tag': 'latest',
+                              'docker_registry_user': '',
+                              'docker_registry_host': ''}
+        def_img = self.images.DockerImage.full_name_from_defaults(config)
+        def_img_no_registry = self.images.DockerImage.full_name_from_defaults(
+                                                            config_no_registry)
+        self.assertTrue(d.repo_addr_check_by_full_name(def_img))
+        self.assertFalse(d.repo_addr_check_by_full_name(def_img_no_registry))
+
+    def test_exist_pull_default_image(self):
+        d = self.images.DockerImages(self.fake_subtest)
+        config = {'docker_repo_name': 'fedora',
+                  'docker_repo_tag': 'latest',
+                  'docker_registry_user': '',
+                  'docker_registry_host': '192.168.122.245:5000'}
+
+        def_img = self.images.DockerImage.full_name_from_defaults(config)
+        self.assertTrue(d.repo_addr_check_by_full_name(def_img))
+        self.assertTrue(d.image_exist_check_by_default())
+        self.assertTrue(d.image_exist_check_by_full_name(def_img))
+
+        kill_run_cache()
+        d.pull_default_image()
+        fake_commands = get_run_cache()
+        # Only the images command should have run
+        self.assertEqual(len(fake_commands), 1)
+        self.assertEqual(fake_commands[0]['command'], '/foo/bar images --no-trunc')
+
+
+    def test_not_exist_pull_default_image(self):
+        d = self.images.DockerImages(self.fake_subtest)
+        config_no = {'docker_repo_name': 'do_not_exist',
+                     'docker_repo_tag': 'latest',
+                     'docker_registry_user': '',
+                     'docker_registry_host': '192.168.122.245:5000'}
+
+        def_img = self.images.DockerImage.full_name_from_defaults(config_no)
+
+        # Remove all images returned by fake 'docker images' command
+        set_image_table('REPOSITORY \t TAG \t IMAGE ID \t CREATED \t VIRTUAL SIZE\n')
+        self.assertTrue(d.repo_addr_check_by_full_name(def_img))
+        self.assertFalse(d.image_exist_check_by_default())
+        self.assertFalse(d.image_exist_check_by_full_name(def_img))
+
+        kill_run_cache()
+        d.pull_default_image()
+        fake_commands = get_run_cache()
+        # Both images and pull should have run
+        self.assertEqual(len(fake_commands), 3)
+        self.assertEqual(fake_commands[0]['command'], '/foo/bar images --no-trunc')
+        self.assertEqual(fake_commands[1]['command'], '/foo/bar pull ' #continue
+                         '192.168.122.245:5000/fedora:latest')
+        self.assertEqual(fake_commands[2]['command'], '/foo/bar images --no-trunc')
 
 if __name__ == '__main__':
     unittest.main()

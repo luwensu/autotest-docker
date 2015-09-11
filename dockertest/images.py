@@ -483,6 +483,30 @@ class DockerImages(object):
         return [di for di in image_list if di.cmp_greedy(repo, tag,
                                                          repo_addr, user)]
 
+    def image_exist_check_by_full_name(self, full_name):
+        """
+        Check whether ``full_name`` has existed.
+        :param full_name: an image's full name.
+        :return: ``True`` if it exists, otherwise ``False`` value will be given
+        """
+        if self.repo_addr_check_by_full_name(full_name):
+            if self.filter_list_full_name(self.list_imgs(), full_name):
+                return True
+            else:
+                return False
+        else:
+            return False
+
+    def image_exist_check_by_default(self):
+        """
+        Check whether default image the sub case uses has existed.
+        **Note** The ``default`` here means the sub case's default,
+        if it's empty, it will be override by the ``Defaults`` section.
+        :return: ``True`` if it exists, otherwise ``False`` value will be given
+        """
+        default_image = self.full_name_from_defaults()
+        return self.image_exist_check_by_full_name(default_image)
+
     def list_imgs(self):
         """
         Return a python-list of DockerImage-like instances
@@ -558,6 +582,22 @@ class DockerImages(object):
         dis = self.list_imgs()
         return [di for di in dis if di.cmp_id(image_id)]
 
+    def pull_default_image(self, timeout=None):
+        """
+        Pull the ``default_image`` from ``full_name_from_defaults()``
+        **Note** The default_image used here is NOT from ``Defaults`` section
+        :param timeout: Override self.timeout if not None
+        """
+        if self.image_exist_check_by_default():
+            return True
+
+        default_image = self.full_name_from_defaults()
+        self.docker_cmd_check("pull %s" % default_image, timeout)
+        if self.image_exist_check_by_default():
+            return True
+        else:
+            return False
+
     def remove_image_by_id(self, image_id):
         """
         Use docker CLI to removes image matching long or short image_ID.
@@ -599,6 +639,19 @@ class DockerImages(object):
         :return: Same as remove_image_by_full_name()
         """
         return self.remove_image_by_full_name(image_obj.full_name)
+
+    def repo_addr_check_by_full_name(self, full_name):
+        """
+        Check whether a ``full_name`` includes ``repo_addr`` attribute
+        :param full_name: image's full name
+        :return: ``True`` if `repo_addr` is not empty, otherwise is ``False``
+        """
+        (_, _, repo_addr, _) = self.DICLS.split_to_component(full_name)
+
+        if repo_addr is not None:
+            return True
+        else:
+            return False
 
     def clean_all(self, fqins):
         """
