@@ -104,7 +104,7 @@ autodoc_member_order = 'bysource'
 
 #: The theme to use for HTML and HTML Help pages.  See the documentation for
 #: a list of builtin themes.
-html_theme = 'default'
+html_theme = 'classic'
 
 #: Theme options are theme-specific and customize the look and feel of a theme
 #: further.  For a list of options available for each theme, see the
@@ -119,7 +119,7 @@ html_theme_path = []
 html_title = "Docker Autotest Documentation"
 
 #: A shorter title for the navigation bar.  Default is the same as html_title.
-html_short_title = None
+html_short_title = ""
 
 #: The name of an image file (relative to this directory) to place at the top
 #: of the sidebar.
@@ -212,7 +212,7 @@ latex_use_parts = False
 latex_show_pagerefs = False
 
 #: If true, show URL addresses after external links.
-latex_show_urls = False
+latex_show_urls = 'inline'
 
 #: Documents to append as an appendix to all manuals.
 latex_appendices = []
